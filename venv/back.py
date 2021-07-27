@@ -5,7 +5,7 @@ from geopy.geocoders import Nominatim
 
 app = Flask(__name__)
 
-API_KEY = '<your_API_KEY_here>'
+API_KEY = '<8c3c98d1f4fd4a0142af53e7e6714de5>'
 
 @app.route('/')
 def index():
