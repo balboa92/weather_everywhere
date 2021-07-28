@@ -1,42 +1,60 @@
-from flask import Flask, request, make_response, jsonify
-import requests
-import json
-from geopy.geocoders import Nominatim
+"""Простой телеграм бот отвечающий прогнозом погоды @WeatherTelegramBot"""
 
-app = Flask(__name__)
+# Проверьте не блокируется ли API телеграмма на уровне провайдера
+# Документация https://github.com/eternnoir/pyTelegramBotAPI
+#              https://github.com/csparpa/pyowm
 
-API_KEY = '<8c3c98d1f4fd4a0142af53e7e6714de5>'
+import pyowm  # Импортируем пакет с помощью которого мы узнаем погоду
+from pyowm.utils.config import get_default_config
+import telebot  # Импортируем пакет бота через ввод в CMD "pip install pytelegrambotapi"
+import os  # Импортируем для использования переменных окружения
+import time
 
-@app.route('/')
-def index():
-    return 'Hello World!'
+config_dict = get_default_config()
+config_dict['language'] = 'ru'  # Настраиваем язык для owm.
+owmToken = '8c3c98d1f4fd4a0142af53e7e6714de5' # Регистрируемся на сайте погоды, получаем ключ API
+owm = pyowm.OWM(owmToken, config_dict)
+botToken = os.getenv('AAEzZmSAOHkQDL0k5TPT6KAfpgQq4KYSkIw')  # Получаем токен через BotFather в телеграме в чате коммандами. /newbot имя моего APITelegramBot
+bot = telebot.TeleBot(botToken)
 
-def results():
-    req = request.get_json(force=True)
+# Когда боту пишут текстовое сообщение вызывается эта функция
+@bot.message_handler(content_types=['text'])
+def send_message(message):
+    """Send the message to user with the weather"""
+    # Отдельно реагируем на сообщения /start и /help
 
-    action = req.get('queryResult').get('action')
+    if message.text.lower() == "/start" or message.text.lower() == "/help":
+        bot.send_message(message.from_user.id, "Здравствуйте. Вы можете узнать здесь погоду. Просто напишите название города." + "\n")
+    else:
+        # С помощью try заставляю пройти код, если функция observation не находит город
+        # и выводит ошибку, то происходит переход к except
+        try:
+            # Имя города пользователь вводит в чат, после этого мы его передаем в функцию
+            observation = owm.weather_at_place(message.text)
+            weather = observation.get_weather()
+            temp = weather.get_temperature("celsius")["temp"]  # Присваиваем переменной значение температуры из таблицы
+            temp = round(temp)
+            print(time.ctime(), "User id:", message.from_user.id)
+            print(time.ctime(), "Message:", message.text.title(), temp, "C", weather.get_detailed_status())
 
-    result = req.get("queryResult")
-    parameters = result.get("parameters")
+            # Формируем и выводим ответ
+            answer = "В городе " + message.text.title() + " сейчас " + weather.get_detailed_status() + "." + "\n"
+            answer += "Температура около: " + str(temp) + " С" + "\n\n"
+            if temp < -10:
+                answer += "холодно очень"
+            elif temp < 10:
+                answer += "Холодно, одевайся теплее."
+            elif temp > 25:
+                answer += "Жарень."
+            else:
+                answer += "комфортно"
+        except Exception:
+            answer = "Не найден город, попробуйте ввести название снова.\n"
+            print(time.ctime(), "User id:", message.from_user.id)
+            print(time.ctime(), "Message:", message.text.title(), 'Error')
 
-    if parameters.get('location').get('city'):
-        geolocator = Nominatim(user_agent='weather-bot')
-        location = geolocator.geocode(parameters.get('location').get('city'))
-        lat = location.latitude
-        long = location.longitude
-        weather_req = requests.get('https://api.openweathermap.org/data/2.5/onecall?lat={}&lon={}&appid={}'.format(lat, long, API_KEY))
-        current_weather = json.loads(weather_req.text)['current']
-        temp = round(current_weather['temp'] - 273.15)
-        feels_like = round(current_weather['feels_like'] - 273.15)
-        clouds = current_weather['clouds']
-        wind_speed = current_weather['wind_speed']
-
-    return {'fulfillmentText': 'Сейчас температура воздуха - {} градусов, ощущается как {} градусов, облачность - {}%, скорость ветра - {}м/с'.format(str(temp), str(feels_like), str(clouds), str(wind_speed))}
-
-@app.route('/webhook', methods=['GET', 'POST'])
-def webhook():
-    return make_response(jsonify(results()))
+        bot.send_message(message.chat.id, answer)  # Ответить сообщением
 
 
-if __name__ == '__main__':
-   app.run(debug=True)
+# Запускаем бота
+bot.polling(none_stop=True)
